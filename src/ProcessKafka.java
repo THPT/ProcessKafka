@@ -36,6 +36,7 @@ public class ProcessKafka {
 
 		// Create the context with 2 seconds batch size
 		JavaStreamingContext jssc = new JavaStreamingContext(sparkConf, new Duration(30000));
+		jssc.checkpoint("hdfs://localhost:9000/RddCheckPoint");
 
 		int numThreads = Integer.parseInt(args[3]);
 		Map<String, Integer> topicMap = new HashMap<>();
