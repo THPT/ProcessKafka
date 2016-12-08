@@ -17,9 +17,9 @@ import org.apache.spark.streaming.kafka.KafkaUtils;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import scala.Array;
 import scala.Tuple2;
-import scala.util.Sorting;
+import ua_parser.Client;
+import ua_parser.Parser;
 
 public class ProcessKafka {
 	private ProcessKafka() {
@@ -30,13 +30,14 @@ public class ProcessKafka {
 			System.err.println("Usage: JavaKafkaWordCount <zkQuorum> <group> <topics> <numThreads>");
 			System.exit(1);
 		}
-
+		
 		// StreamingExamples.setStreamingLogLevels();
 		SparkConf sparkConf = new SparkConf().setAppName("ProcessKafka");
 
 		// Create the context with 2 seconds batch size
-		JavaStreamingContext jssc = new JavaStreamingContext(sparkConf, new Duration(30000));
+		JavaStreamingContext jssc = new JavaStreamingContext(sparkConf, new Duration(5000));
 		jssc.checkpoint("hdfs://localhost:9000/RddCheckPoint");
+		
 
 		int numThreads = Integer.parseInt(args[3]);
 		Map<String, Integer> topicMap = new HashMap<>();
@@ -69,30 +70,44 @@ public class ProcessKafka {
 				if (t.collect().size() == 0) {
 					return;
 				}
+					
+				SparkSession sparkSession = SparkSession.builder().appName("ProcessingData")
+						.config("spark.sql.warehouse.dir", "/user/hive/warehouse")
+						.config("hive.exec.dynamic.partition.mode", "nonstrict").enableHiveSupport().getOrCreate();
+				sparkSession.sql("show tables").show();
+				
 				String jsonStr = t.reduce(reduceS);
 				ObjectMapper mapper = new ObjectMapper();
 				List<String> arr = new ArrayList<String>();
+				System.out.println("-Tick");
 				for (String retval : jsonStr.split("\\|")) {
 					Event event = mapper.readValue(retval, Event.class);
 					if (event.ip.isEmpty()) {
 						event.setIp("127.0.0.1");
 					}
-					String value = String.format("(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", event.getSqlIp(),
-							event.createdAt, event.getSqlAgent().replace(";", "\\;"), event.getSqlUuid(),
+					// Get agent info
+					Parser uaParser = new Parser();
+					Client c = uaParser.parse(event.getAgent());
+					String uaFamily = "'" + c.userAgent.family + "'";
+					String uaMajor = "'" + c.userAgent.major + "'";
+					String uaMinor = "'" + c.userAgent.minor + "'";
+					String osFamily = "'" + c.os.family + "'";
+					String osMajor = "'" + c.os.major + "'";
+					String osMinor = "'" + c.os.minor + "'";
+					String device = "'" + c.device.family + "'";
+
+					String value = String.format(
+							"(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+							event.getSqlIp(), event.createdAt, event.getSqlAgent().replace(";", "\\;"), uaFamily,
+							uaMajor, uaMinor, osFamily, osMajor, osMinor, device, event.getSqlUuid(),
 							event.getSqlReferrer(), event.getSqlUrl(), event.getSqlMetric(), event.getSqlProductId(),
 							event.getSqlVideoId(), event.orderId, event.customerId);
 					arr.add(value);
 				}
-
-				SparkSession sparkSession = SparkSession.builder().appName("ProcessingData")
-						.config("spark.sql.warehouse.dir", "/user/hive/warehouse")
-						.config("hive.exec.dynamic.partition.mode", "nonstrict").enableHiveSupport().getOrCreate();
-				sparkSession.sql("show tables").show();
 				String query = String.format("insert into table events values %s", String.join(",", arr));
 				System.out.println(query);
 				sparkSession.sql(query);
 			}
-
 		});
 
 		jssc.start();
