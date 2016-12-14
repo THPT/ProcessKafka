@@ -3,6 +3,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.function.Function;
@@ -56,7 +57,7 @@ public class ProcessKafka {
 			}
 		});
 
-		Function2<String, String, String> reduceS = new Function2<String, String, String>() {
+		final Function2<String, String, String> reduceS = new Function2<String, String, String>() {
 
 			@Override
 			public String call(String v1, String v2) throws Exception {
@@ -104,7 +105,7 @@ public class ProcessKafka {
 							event.getSqlVideoId(), event.orderId, event.customerId);
 					arr.add(value);
 				}
-				String query = String.format("insert into table events values %s", String.join(",", arr));
+				String query = String.format("insert into table events values %s", StringUtils.join(arr, ","));
 				System.out.println(query);
 				sparkSession.sql(query);
 			}
